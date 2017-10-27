@@ -1,5 +1,5 @@
 # video-streaming-alexa-skill
-Skill for streaming Dropbox videos in alexa devices with screen (e.g: echo show)
+Skill for streaming Dropbox videos in alexa devices with screen (e.g: Echo Show)
 
 ## SETUP INSTRUCTIONS
 
@@ -8,6 +8,7 @@ Skill for streaming Dropbox videos in alexa devices with screen (e.g: echo show)
 1. Create a dropbox access token using the instructions here:-
 https://blogs.dropbox.com/developers/2014/05/generate-an-access-token-for-your-own-account/
 
+2. Create a Alexa/ folder inside your Dropbox account and add any video files you want to stream
 
 ## Download code from github
 
@@ -27,22 +28,22 @@ https://blogs.dropbox.com/developers/2014/05/generate-an-access-token-for-your-o
 3. Select "Blank Function" - this will automatically take you to the "Configure triggers" page.
 4. Click the dotted box and select "Alexa Skills Kit" (NOTE - if you do not see Alexa Skill Kit as an option then you are in the wrong AWS region). 
 5. Click Next 
-5. Name the Lambda Function :-
+5. Name the Lambda Function, e.g:-
 
     ```
-    dropboxPlayer
+    dropboxPlayerSkill
     ```
     
 5. Set a decription, e.g:-
 
     ```
-    Drobox video player
+    Alexa Dropbox video player skill
     ```
     
 6. Select the default runtime which is currently "node.js 6.10".
 7. Select Code entry type as "Upload a .ZIP file". 
 
-![alt text](screenshots/lambda_1.jpeg)
+![alt text](screenshots/lambda_skill1.png)
 
 7. Click on the "Upload" button. Go to the folder where you unzipped the files you downloaded from Github, select index.zip and click open. 
 8. Enter the following into the Environment Variables Section (If you are pasting in the Token then make sure you have no extra spaces: -
@@ -50,8 +51,9 @@ https://blogs.dropbox.com/developers/2014/05/generate-an-access-token-for-your-o
 |Key           | Value|
 |--------------| -----|
 |DROPBOX_TOKEN|(Put the Dropbox token in here)|
+|MEDIA_BUCKET|(Put your public S3 bucket name with images/logos here)|
 
-![alt text](screenshots/environment_variables.jpeg) 
+![alt text](screenshots/lambda_skill2.png) 
 
 9. Keep the Handler as "index.handler" (this refers to the main js file in the zip).
 10. Under Role - select "Create a custom role". This will automatically open a new browser tab or window.
@@ -65,35 +67,31 @@ https://blogs.dropbox.com/developers/2014/05/generate-an-access-token-for-your-o
 
 ![alt text](screenshots/existing_role.jpeg)
 
-12. Under Advanced Settings set Memory (MB) to 384 and change the Timeout to 1 minute 0 seconds
+12. Under Advanced Settings set Memory (MB) to 320 and change the Timeout to 0 minutes 30 seconds
 
 ![alt text](screenshots/advanced_settings.jpeg)
 
-13. Click on the blue "Next" at the bottom of the page and review the settings then click "Create Function". This will upload the index.zip file to Lambda.
+13. Once saved, click on the tab below code entry type and choose upload a .ZIP file. We will upload the video-streaming-alexa-skill.zip file to Lambda.
 
-![alt text](screenshots/review_function.jpeg)
+![alt text](screenshots/lambda_skill3_upload.png) 
 
 14. Copy the ARN from the top right to be used later in the Alexa Skill Setup (it's the text after ARN - it won't be in bold and will look a bit like this arn:aws:lambda:eu-west-1:XXXXXXX:function:youtube). Hint - Paste it into notepad or similar.
 
 ## Alexa Skill Setup
 
-1. In a new browser tab/window go to the Alexa Console (https://developer.amazon.com/edw/home.html and select Alexa on the top menu)
-1. If you have not registered as an Amazon Developer then you will need to do so. Fill in your details and ensure you answer "NO" for "Do you plan to monetize apps by charging for apps or selling in-app items" and "Do you plan to monetize apps by displaying ads from the Amazon Mobile Ad Network or Mobile Associates?"
-
-![alt text](screenshots/payment.jpeg)
-
-1. Once you are logged into your account go to to the Alexa tab at the top of the page.
+1. In a new browser tab/window go to the Alexa Console (https://developer.amazon.com/edw/home.html and select Alexa on the top menu). If you have not registered as an Amazon Developer then you will need to do so. Once you are logged into your account go to to the Alexa tab at the top of the page.
+  
 2. Click on the yellow "Get Started" button under Alexa Skills Kit.
 
-![alt text](screenshots/getting_started.jpeg)
+![alt text](screenshots/alexa-vide-skill1-getstarted.jpg)
 
-3. Click the "Add a New Skill" yellow box towards the top right.
+3. Click the "Add a New Skill" box towards the top right.
 
 ![alt text](screenshots/add_new_skill.jpeg)
 
 4. You will now be on the "Skill Information" page.
 5. Set "Custom Interaction Model" as the Skill type
-6. Select the language as English (US), English (UK) - **Note German is not currently supported**
+6. Select the language as English (US) or English (UK)
 6. Set the "Name" to 
 
     ```
@@ -109,7 +107,7 @@ https://blogs.dropbox.com/developers/2014/05/generate-an-access-token-for-your-o
 8. Leave the other settings in Global Fields set to "No'
 9. Click "Save" and then click "Next".
 
-![alt text](screenshots/skill_information.jpeg)
+![alt text](screenshots/alexa-video-skill2.jpg)
 
 10. You will now be on the "Invocation Model" page.
 11. Copy the text below into the "Intent Schema" box - Ignore the "Built-in intents for playback control box above"
@@ -186,7 +184,7 @@ https://blogs.dropbox.com/developers/2014/05/generate-an-access-token-for-your-o
       ]
     }
     ```
-![alt text](screenshots/intent_schema.jpeg)
+![alt text](screenshots/alexa-video-skill3Interaction%20model1.png)
 
 12. Under Custom Slot Types:-
 13. Type into the "Enter Type" field (NOTE - this is captialised) :-
@@ -218,16 +216,19 @@ https://blogs.dropbox.com/developers/2014/05/generate-an-access-token-for-your-o
     NumberIntent play track number {number}
     DemoIntent demo
     ```
-![alt text](screenshots/utterances.jpeg) 
+![alt text](screenshots/alexa-video-skill3Interaction%20model2.png) 
 
 16. Click "Save" and then "Next".
 17. You will now be on the "Configuration" page.
 18. Select "AWS Lambda ARN (Amazon Resource Name)" for the skill Endpoint Type.
 19. Then pick the most appropriate geographical region (either US or EU as appropriate) and paste into the box (highlighted in red in the screenshot) the ARN you copied earlier from the AWS Lambda setup.
 20. Select "No" for Account Linking and leave everything under permissions unchecked
-14. Click "Save" and then "Next".
+21. Click "Save" and then "Next".
 ![alt text](screenshots/endpoint.jpeg) 
-15. There is no need to go any further through the process i.e. submitting for certification. Note - testing the skill using the service simulator can produce unexpected results so is not recommended
+22. There is no need to go any further through the process i.e. submitting for certification. Note - testing the skill using the service simulator can produce unexpected results so is not recommended
+
+23. You can start testing writing something like `Alexa, launch dropbox player` which will return a list of media players in the Dropbox Alexa/ folder and ask you what do you want to play.
+Right now the test service simulator do not simulate video or long audio so for fully testing the app and receiving video you will need an echo show.  
 
 
  
