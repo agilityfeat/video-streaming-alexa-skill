@@ -198,6 +198,10 @@ https://blogs.dropbox.com/developers/2014/05/generate-an-access-token-for-your-o
     match
     prince
     video
+    the fray
+    the rolling stones
+    toad the wet sproket
+    sunshine band
     ```
 
 15. Copy the text below and paste them into the Sample Utterances box.
@@ -225,11 +229,9 @@ https://blogs.dropbox.com/developers/2014/05/generate-an-access-token-for-your-o
 20. Select "No" for Account Linking and leave everything under permissions unchecked
 21. Click "Save" and then "Next".
 ![alt text](screenshots/endpoint.jpeg) 
-22. There is no need to go any further through the process i.e. submitting for certification. Note - testing the skill using the service simulator can produce unexpected results so is not recommended
-
+22. There is no need to go any further through the process i.e. submitting for certification.
 23. You can start testing writing something like `Alexa, launch dropbox player` which will return a list of media players in the Dropbox Alexa/ folder and ask you what do you want to play.
 Right now the test service simulator do not simulate video or long audio so for fully testing the app and receiving video you will need an echo show.  
-
 
  
  ### Credit where credit is due:
