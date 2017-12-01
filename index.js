@@ -3,6 +3,7 @@ const AWS = require('aws-sdk');
 const dropboxV2Api = require('dropbox-v2-api');
 const util = require('util');
 var fs = require('fs');
+var request = require("request");
 var dropbox_token = process.env['DROPBOX_TOKEN'];
 var media_bucket = process.env['MEDIA_BUCKET'];
 // var ffmpeg = require('fluent-ffmpeg');
@@ -51,7 +52,7 @@ alexaplayer.prototype.handle = function () {
 								"simpleCardContent" : 'Listen or watch your favourite videos with less click, click, click and more wow',
 								"bodyTemplateTitle" : 'Welcome to Dropbox Player. What do you want to play?',
 								"bodyTemplateContent" : 'Just say what do you want to play or, if you do not know, say demo',
-								"templateToken" : "echotubeListTemplate",
+								"templateToken" : "dropboxPlayerListTemplate",
 								"askOrTell" : ":ask",
 								"sessionAttributes": {}
 						};
@@ -403,7 +404,45 @@ alexaplayer.prototype.handle = function () {
 								}
 						}
 				});
-		}
+		} else if (requestType === "Display.ElementSelected") {
+      console.log('Element Selected:');
+      console.log(this.event.request.token);
+      var id = this.event.request.token.split('_')[1];
+      console.log(settings.tracksettings[id]);
+      var that = this;
+      var getTempURL = function(cb) {
+        dropbox({
+          resource: 'files/get_temporary_link',
+          parameters: {
+            'path': settings.tracksettings[id].path
+          }
+        }, (err, result) => {
+          if (err) {
+            console.log('There was an error')
+            console.log(err)
+            this.speak('There was an error playing the demo video');
+          } else if (result) {
+            console.log('Here is the temp link')
+            console.log(result.link)
+            var streamURL = result.link
+            cb(streamURL);
+          }
+        });
+      };
+
+      if (this.supportsDisplay()) {
+        getTempURL( function(streamURL) {
+          that.playVideo(streamURL, 0, that.createToken(), settings.tracksettings[id].title, settings.tracksettings[id].size);
+        });
+      } else {
+        getTempURL( function(streamURL) {
+          that.playAudio(streamURL, 0, that.createToken(), settings.tracksettings[id].title, "Just streaming audio")
+        });
+      }
+    } else {
+		  console.log('unknown request...');
+      console.log(this.event.request);
+    }
 
 };
 
@@ -901,6 +940,19 @@ alexaplayer.prototype.processResult = function (partnumber, enqueue, offset) {
 
 // HELPER FUNCTIONS
 
+alexaplayer.prototype.putObjectToS3 = function(bucket, key, data){
+  var s3 = new AWS.S3();
+  var params = {
+    Bucket : bucket,
+    Key : key,
+    Body : data
+  }
+  s3.putObject(params, function(err, data) {
+    if (err) console.log(err, err.stack); // an error occurred
+    else     console.log(data);           // successful response
+  });
+}
+
 alexaplayer.prototype.createToken = function() {
 
 		var d = new Date().getTime();
@@ -945,7 +997,7 @@ function getFileExtension(filename) {
 
 function renderTemplate (content) {
 		switch(content.templateToken) {
-				case "echotubeBodyTemplate":
+				case "dropboxPlayerBodyTemplate":
 						var response = {
 								"version": "1.0",
 								"response": {
@@ -988,7 +1040,7 @@ function renderTemplate (content) {
 						this.context.succeed(response);
 						break;
 
-				case "echotubeListTemplate":
+				case "dropboxPlayerListTemplate":
 
 						dropbox({
 								resource: 'files/list_folder',
@@ -1028,75 +1080,173 @@ function renderTemplate (content) {
 										settings.playlist = playlist;
 										console.log('Saving settings...');
 										var renderfunction = this;
+
 										this.saveSettings(function(err, result)  {
 												if (err) {
 														console.log('There was an error saving settings to dropbox', err)
 														renderfunction.speak('I got an error saving the Dropbox file settings')
 												} else {
-														var listofItems = function() {
-																var list = [];
-																for (var i = 0; i < settings.playlist.length-1; i++){
-																		var obj = {
-																				"token": "item_"+i,
-																				"image": {
-																						"sources": [
-																								{
-																										"url": renderfunction.media_url("social_4-512_medium_small.jpg")
-																								}
-																						],
-																						"contentDescription": "Description"
-																				},
-																						"textContent": {
-																						"primaryText": {
-																								"type": "PlainText",
-																								"text": settings.playlist[i]
-																						},
-																						"secondaryText": {
-																								"type": "PlainText",
-																								"text": renderfunction.formatBytes(settings.tracksettings[i].size)
-																						}
-																				}
-																		}
-																		list.push(obj);
-																}
-																return list;
-														}
 
-														var response = {
-																"version": "1.0",
-																"response": {
-																		"directives": [
-																				{
-																						"type": "Display.RenderTemplate",
-																						"template": {
-																								"type": "ListTemplate2",
-																								"token": "list_template_two",
-																								"title": content.bodyTemplateTitle,
-																								"backButton": "VISIBLE",
-																								"listItems": listofItems()
-																						}
-																				}
-																		],
-																		"outputSpeech": {
-																				"type": "SSML",
-																				"ssml": "<speak>"+content.hasDisplaySpeechOutput+"</speak>"
-																		},
-																		"reprompt": {
-																				"outputSpeech": {
-																						"type": "SSML",
-																						"ssml": "<speak>"+content.hasDisplayRepromptText+"</speak>"
-																				}
-																		},
-																		"shouldEndSession": content.askOrTell==":tell",
-																		"card": {
-																				"type": "Simple",
-																				"title": content.simpleCardTitle,
-																				"content": content.simpleCardContent
-																		}
-																},
-																"sessionAttributes": content.sessionAttributes
-														}
-														renderfunction.context.succeed(response);
+														var listofItems = function() {
+                                var list = [];
+                                var length = settings.playlist.length - 1;
+                                var generatedItems = 0;
+                                // Get list with thumbnail icons
+                                //for loop each file and generate the view
+                                var generateItem = function(seq, cb) {
+                                  console.log('Item num:'+seq);
+                                  console.log('settings:');
+                                  console.log(settings.tracksettings);
+                                  var options = {
+                                    method: 'POST',
+                                    url: 'https://content.dropboxapi.com/2/files/get_thumbnail',
+                                    headers:
+                                    {
+                                      authorization: 'Bearer ' + dropbox_token,
+                                      "dropbox-api-arg": '{"path":"'+settings.tracksettings[seq].path+'","format":"jpeg", "size": "w640h480"}'
+                                    },
+                                    encoding: null
+                                  };
+
+                                  request(options, function (error, response, body) {
+                                    if (error) {
+                                      console.log(err);
+                                      this.speak('Something went wrong getting thumbnail from Dropbox');
+                                      throw new Error(error);
+                                    } else {
+                                      console.log(body.toString());
+                                      var image = body;
+                                      console.log('thumbnail ok above');
+                                      fs.writeFile("/tmp/thumbnail"+seq+".jpg", image, function (err) {
+                                        if (err) {
+                                          console.log("writeFile failed: " + err);
+                                        } else {
+                                          fs.readFile("/tmp/thumbnail"+seq+".jpg", {encoding: 'base64'}, function (err, data) {
+                                            if (err) throw err;
+                                            console.log('read file');
+                                            console.log(data);
+                                            //upload to dropbox thumbnails folder and get url
+                                            dropbox({
+                                              resource: 'files/upload',
+                                              parameters: {
+                                                "path": "/AlexaThumbnails/thumbnail"+seq+".jpg",
+                                                "mode": "add",
+                                                "autorename": true,
+                                                "mute": false
+                                              },
+                                              readStream: fs.createReadStream('/tmp/thumbnail'+seq+'.jpg')
+                                            }, (err, results) => {
+                                              console.log('after saved tmp and upload')
+                                              console.log(results);
+                                              console.log(settings);
+                                              //get image tmp link
+                                              dropbox({
+                                                resource: 'files/get_temporary_link',
+                                                parameters: {
+                                                  'path': '/AlexaThumbnails/thumbnail'+seq+'.jpg'
+                                                }
+                                              }, (err, result) => {
+                                                if (err) {
+                                                  console.log('There was an error')
+                                                  console.log(err)
+                                                  this.speak('There was an error playing the demo video');
+                                                } else if (result) {
+                                                  console.log('tmp link image:');
+                                                  console.log(result.link)
+                                                  var obj = {
+                                                    "token": "item_" + seq,
+                                                    "image": {
+                                                      "sources": [
+                                                        {
+                                                          "url": result.link
+                                                        }
+                                                      ],
+                                                      "contentDescription": "Description"
+                                                    },
+                                                    "textContent": {
+                                                      "primaryText": {
+                                                        "type": "RichText",
+                                                        // "text": "<action token='play'>"+settings.playlist[seq]+"</action>"
+                                                        "text": "<b>"+settings.playlist[seq]+"</b>"
+                                                      },
+                                                      "secondaryText": {
+                                                        "type": "PlainText",
+                                                        "text": renderfunction.formatBytes(settings.tracksettings[seq].size)
+                                                      }
+                                                    }
+                                                  }
+                                                  list.push(obj);
+                                                  console.log('object item ready, seq:'+seq);
+                                                  cb();
+                                                }
+                                              });
+                                            });
+                                          });
+                                        }
+                                      });
+                                    }
+                                  });
+                                }
+
+                                return new Promise(function (fulfill, reject) {
+                                    for (var i = 0; i < length; i++) {
+                                      console.log('for looop num:' + i);
+                                      generateItem(i, function () {
+                                        generatedItems++;
+                                        console.log('generated items:');
+                                        console.log(generatedItems);
+                                        console.log(length);
+                                        if (generatedItems === length) {
+                                          console.log('--->List of files:');
+                                          console.log(JSON.stringify(list));
+                                          fulfill(list);
+                                        }
+                                      })
+
+                                    }
+                                });
+                            }
+
+														//console.log(listofItems());
+                            listofItems().then(function (res){
+                                var response = {
+                                    "version": "1.0",
+                                    "response": {
+                                        "directives": [
+                                            {
+                                                "type": "Display.RenderTemplate",
+                                                "template": {
+                                                    "type": "ListTemplate2",
+                                                    "token": "list_template_two",
+                                                    "title": content.bodyTemplateTitle,
+                                                    "backButton": "VISIBLE",
+                                                    "listItems": res
+                                                }
+                                            }
+                                        ],
+                                        "outputSpeech": {
+                                            "type": "SSML",
+                                            "ssml": "<speak>"+content.hasDisplaySpeechOutput+"</speak>"
+                                        },
+                                        "reprompt": {
+                                            "outputSpeech": {
+                                                "type": "SSML",
+                                                "ssml": "<speak>"+content.hasDisplayRepromptText+"</speak>"
+                                            }
+                                        },
+                                        "shouldEndSession": content.askOrTell==":tell",
+                                        "card": {
+                                            "type": "Simple",
+                                            "title": content.simpleCardTitle,
+                                            "content": content.simpleCardContent
+                                        }
+                                    },
+                                    "sessionAttributes": content.sessionAttributes
+                                }
+                                console.log('Whole list response:');
+                                console.log(response);
+                                renderfunction.context.succeed(response);
+                            });
 												}
 										});
 								}
@@ -1104,7 +1254,7 @@ function renderTemplate (content) {
 						break;
 
 				default:
-						this.response.speak("Thanks for using echotube, goodbye");
+						this.response.speak("Thanks for using Dropbox Player, goodbye");
 						this.emit(':responseReady');
 		}
 
