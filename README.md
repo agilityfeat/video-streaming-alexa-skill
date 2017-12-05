@@ -174,9 +174,22 @@ https://blogs.dropbox.com/developers/2014/05/generate-an-access-token-for-your-o
             {
               "name": "search",
               "type": "SEARCH"
+            },
+            {
+              "name": "secondSearch",
+              "type": "AMAZON.SportsTeam"
             }
           ],
           "intent": "SearchIntent"
+        },
+        {
+          "slots": [
+            {
+              "name": "search",
+              "type": "SEARCH"
+            }
+          ],
+          "intent": "ShowIntent"
         },
         {
           "intent": "EditAccountIntent"
@@ -200,8 +213,11 @@ https://blogs.dropbox.com/developers/2014/05/generate-an-access-token-for-your-o
     video
     the fray
     the rolling stones
-    toad the wet sproket
-    sunshine band
+    ultra nate
+    NYC
+    Seattle
+    Chelsea
+    Portland
     ```
 
 15. Copy the text below and paste them into the Sample Utterances box.
@@ -212,9 +228,8 @@ https://blogs.dropbox.com/developers/2014/05/generate-an-access-token-for-your-o
     NumberIntent play track {number}
     NumberIntent play track number {number}
     DemoIntent demo
-    ShowIntent show me the latest highlights from {search}
-    ShowIntent show me the latest videos from {search}
     SearchIntent play highlights from {search} match
+    SearchIntent play highlights from the {search} and {secondSearch} match
     SearchIntent play {search}
     SearchIntent find {search}
     SearchIntent play some {search}
@@ -222,6 +237,9 @@ https://blogs.dropbox.com/developers/2014/05/generate-an-access-token-for-your-o
     SearchIntent videos by {search}
     SearchIntent for videos by {search}
     SearchIntent for audio by {search}
+    ShowIntent show me videos from {search}
+    ShowIntent show me the latest highlights from {search}
+    ShowIntent show me the latest videos from {search}
     ```
 ![alt text](screenshots/alexa-video-skill3Interaction%20model2.png) 
 
