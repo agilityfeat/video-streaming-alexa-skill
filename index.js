@@ -9,7 +9,7 @@ var media_bucket = process.env['MEDIA_BUCKET'];
 // var ffmpeg = require('fluent-ffmpeg');
 
 const dropbox = dropboxV2Api.authenticate({
-		token: dropbox_token
+  token: dropbox_token
 });
 
 const videoOutput = '/tmp/file.mp4'
@@ -26,414 +26,261 @@ var settings = new Object();
 var streamURL;
 
 exports.handler = function(event, context) {
-		var player = new alexaplayer(event, context);
-		player.handle();
+  var player = new alexaplayer(event, context);
+  player.handle();
 };
 
 var alexaplayer = function (event, context) {
-		this.event = event;
-		this.context = context;
+  this.event = event;
+  this.context = context;
 };
 
 alexaplayer.prototype.handle = function () {
-		var requestType = this.event.request.type;
-		var userId = this.event.context ? this.event.context.System.user.userId : this.event.session.user.userId;
-		console.log('Event:');
-		console.log(JSON.stringify(this.event));
-		if (this.supportsDisplay()) console.log('Supports display');
-		else console.log('Does not support display');
+  var requestType = this.event.request.type;
+  var userId = this.event.context ? this.event.context.System.user.userId : this.event.session.user.userId;
+  console.log('Event:');
+  console.log(JSON.stringify(this.event));
+  if (this.supportsDisplay()) console.log('Supports display');
+  else console.log('Does not support display');
 
-		if (requestType === "LaunchRequest") {
-				if (this.supportsDisplay()) {
-						var content = {
-								"hasDisplaySpeechOutput" : 'Welcome to Dropbox Player. What do you want to play?',
-								"hasDisplayRepromptText" : 'Just say what do you want to play or, if you do not know, say play demo',
-								"simpleCardTitle" : 'Dropbox Player',
-								"simpleCardContent" : 'Listen or watch your favourite videos with less click, click, click and more wow',
-								"bodyTemplateTitle" : 'Welcome to Dropbox Player. What do you want to play?',
-								"bodyTemplateContent" : 'Just say what do you want to play or, if you do not know, say demo',
-								"templateToken" : "dropboxPlayerListTemplate",
-								"askOrTell" : ":ask",
-								"sessionAttributes": {}
-						};
-						renderTemplate.call(this, content);
-				} else {
-						this.speak('Welcome to Dropbox Player. What do you want to listen?', 'Welcome to Dropbox Player', 'Listen or watch your favourite videos with less click, click, click and more wow')
-				}
+  if (requestType === "LaunchRequest") {
+    if (this.supportsDisplay()) {
+      var content = {
+        "hasDisplaySpeechOutput" : 'Welcome to Dropbox Player. What do you want to play?',
+        "hasDisplayRepromptText" : 'Just say what do you want to play or, if you do not know, say play demo',
+        "simpleCardTitle" : 'Dropbox Player',
+        "simpleCardContent" : 'Listen or watch your favourite videos with less click, click, click and more wow',
+        "bodyTemplateTitle" : 'Welcome to Dropbox Player. What do you want to play?',
+        "bodyTemplateContent" : 'Just say what do you want to play or, if you do not know, say demo',
+        "templateToken" : "dropboxPlayerListTemplate",
+        "askOrTell" : ":ask",
+        "sessionAttributes": {}
+      };
+      renderTemplate.call(this, content);
+    } else {
+      this.speak('Welcome to Dropbox Player. What do you want to listen?', 'Welcome to Dropbox Player', 'Listen or watch your favourite videos with less click, click, click and more wow')
+    }
 
-		} else if (requestType === "IntentRequest") {
-				var intent = this.event.request.intent;
+  } else if (requestType === "IntentRequest") {
+    var intent = this.event.request.intent;
 
-				if (!process.env['DROPBOX_TOKEN']){
-						this.speak('DROPBOX TOKEN Environment Variable not set!');
-				}
+    if (!process.env['DROPBOX_TOKEN']){
+      this.speak('DROPBOX TOKEN Environment Variable not set!');
+    }
 
-				if (intent.name === "SearchIntent" || intent.name === "ShowIntent") {
-						var searchFunction = this;
-						console.log('Starting Search Intent')
+    if (intent.name === "SearchIntent" || intent.name === "ShowIntent") {
+      var searchFunction = this;
+      console.log('Starting Search Intent')
 
-						var alexaUtteranceText = this.event.request.intent.slots.search.value;
-						console.log ('Search term is : '+ alexaUtteranceText);
+      var alexaUtteranceText = this.event.request.intent.slots.search.value;
+      console.log ('Search term is : '+ alexaUtteranceText);
 
-						if (!alexaUtteranceText){
-								searchFunction.speak("I'm sorry I didn't understand what you said")
-						}
-						if (alexaUtteranceText) {
-								dropbox({
-										resource: 'files/search',
-										parameters: {
-												"path": "/Alexa",
-												"query": alexaUtteranceText,
-												"start": 0,
-												"max_results": 15,
-												"mode": "filename"
-										}
-								}, (err, results) => {
+      if (!alexaUtteranceText){
+        searchFunction.speak("I'm sorry I didn't understand what you said")
+      }
+      if (alexaUtteranceText) {
+        dropbox({
+          resource: 'files/search',
+          parameters: {
+            "path": "/Alexa",
+            "query": alexaUtteranceText,
+            "start": 0,
+            "max_results": 15,
+            "mode": "filename"
+          }
+        }, (err, results) => {
+          if (err) {
+            return console.log(err);
+          }
+
+          console.log(JSON.stringify(results));
+          console.log('number of results is', results.matches.length);
+          if (results.start === 0) searchFunction.speak('I could not find any file with the name ' + alexaUtteranceText + ', lets try again, what do you want to play?', true);
+          settings.results = results.matches;
+          settings.currentresult = 0;
+          settings.previousURL = null;
+          settings.previousresult = 0;
+
+          var tracksettings = [];
+          var playlist = [];
+
+          for (var count = 0; count <= results.matches.length - 1; count++) {
+            playlist[count] = 'Track ' + (count + 1) + ': ' + results.matches[count].metadata.name
+            var object = {
+              "id": count,
+              "title": results.matches[count].metadata.name,
+              "path": results.matches[count].metadata.path_display,
+              "duration": null,
+              "parts": null,
+              "size": results.matches[count].metadata.size,
+              "currentpart": 0,
+              "isVideo": this.validVideoFormat(results.matches[count].metadata.path_display)
+            }
+            tracksettings.push(object)
+          }
+
+          settings.tracksettings = tracksettings;
+          settings.playlist = playlist;
+
+          if (intent.name === "ShowIntent") {
+            if (this.supportsDisplay()) {
+              var content = {
+                "hasDisplaySpeechOutput" : 'Here you have some videos of ' + alexaUtteranceText,
+                "hasDisplayRepromptText" : 'Just say which video do you want to play or, if you do not know, say "play track 1"',
+                "simpleCardTitle" : alexaUtteranceText + ' videos',
+                "simpleCardContent" : 'Listen or watch videos with less click, click, click and more wow',
+                "bodyTemplateTitle" : '"' + alexaUtteranceText + '" video results. What do you want to play?',
+                "bodyTemplateContent" : 'Just say what do you want to play or, if you do not know, say play track 1',
+                "templateToken" : "dropboxPlayerListTemplate",
+                "askOrTell" : ":ask",
+                "sessionAttributes": {}
+              };
+              renderTemplate.call(this, content, settings);
+            } else {
+              this.speak('Here you have some videos of ' + alexaUtteranceText + '. What do you want to play?', 'Welcome to Dropbox Player', 'Listen or watch your favourite videos with less click, click, click and more wow')
+            }
+          } else {
+            searchFunction.saveSettings(function (err, result) {
+              if (err) {
+                console.log('There was an error saving settings to dropbox', err)
+                searchFunction.speakWithCard('I got an error from the Dropbox API. Check the API Token has been copied into the Lambda environment variable properly, with no extra spaces before or after the Token', 'YOUTUBE DROPBOX ERROR', 'I got an error from the Dropbox API. \nCheck the Token has been copied into the DROPBOX_TOKEN Lambda environment variable properly, with no extra spaces before or after the Token')
+              } else {
+                searchFunction.loadSettings(function (err, result) {
                   if (err) {
-                    return console.log(err);
-                  }
-
-                  console.log(JSON.stringify(results));
-                  console.log('number of results is', results.matches.length);
-                  if (results.start === 0) searchFunction.speak('I could not find any file with the name ' + alexaUtteranceText + ', lets try again, what do you want to play?', true);
-                  settings.results = results.matches;
-                  settings.currentresult = 0;
-                  settings.previousURL = null;
-                  settings.previousresult = 0;
-
-                  var tracksettings = [];
-                  var playlist = [];
-
-                  for (var count = 0; count <= results.matches.length - 1; count++) {
-                    playlist[count] = 'Track ' + (count + 1) + ': ' + results.matches[count].metadata.name
-                    var object = {
-                      "id": count,
-                      "title": results.matches[count].metadata.name,
-                      "path": results.matches[count].metadata.path_display,
-                      "duration": null,
-                      "parts": null,
-                      "size": results.matches[count].metadata.size,
-                      "currentpart": 0,
-                      "isVideo": this.validVideoFormat(results.matches[count].metadata.path_display)
-                    }
-                    tracksettings.push(object)
-                  }
-
-                  settings.tracksettings = tracksettings;
-                  settings.playlist = playlist;
-
-                  if (intent.name === "ShowIntent") {
-                    if (this.supportsDisplay()) {
-                      var content = {
-                        "hasDisplaySpeechOutput" : 'Here you have some videos of ' + alexaUtteranceText,
-                        "hasDisplayRepromptText" : 'Just say which video do you want to play or, if you do not know, say "play track 1"',
-                        "simpleCardTitle" : alexaUtteranceText + ' videos',
-                        "simpleCardContent" : 'Listen or watch videos with less click, click, click and more wow',
-                        "bodyTemplateTitle" : '"' + alexaUtteranceText + '" video results. What do you want to play?',
-                        "bodyTemplateContent" : 'Just say what do you want to play or, if you do not know, say play track 1',
-                        "templateToken" : "dropboxPlayerListTemplate",
-                        "askOrTell" : ":ask",
-                        "sessionAttributes": {}
-                      };
-                      renderTemplate.call(this, content, settings);
-                    } else {
-                      this.speak('Here you have some videos of ' + alexaUtteranceText + '. What do you want to play?', 'Welcome to Dropbox Player', 'Listen or watch your favourite videos with less click, click, click and more wow')
-                    }
+                    searchFunction.speak('There was an error loading settings from dropbox')
                   } else {
-                    searchFunction.saveSettings(function (err, result) {
-                      if (err) {
-                        console.log('There was an error saving settings to dropbox', err)
-                        searchFunction.speakWithCard('I got an error from the Dropbox API. Check the API Token has been copied into the Lambda environment variable properly, with no extra spaces before or after the Token', 'YOUTUBE DROPBOX ERROR', 'I got an error from the Dropbox API. \nCheck the Token has been copied into the DROPBOX_TOKEN Lambda environment variable properly, with no extra spaces before or after the Token')
-                      } else {
-                        searchFunction.loadSettings(function (err, result) {
-                          if (err) {
-                            searchFunction.speak('There was an error loading settings from dropbox')
-                          } else {
-                            searchFunction.processResult(0, null, 0);
-                          }
-                        });
-                      }
-                    });
+                    searchFunction.processResult(0, null, 0);
                   }
-								});
-						} else {
-								searchFunction.speak('I could not find any file with the name ' + alexaUtteranceText + ', What do you want to do?', true);
-						}
+                });
+              }
+            });
+          }
+        });
+      } else {
+        searchFunction.speak('I could not find any file with the name ' + alexaUtteranceText + ', What do you want to do?', true);
+      }
 
-				} else if (intent.name === "NumberIntent") {
+    } else if (intent.name === "NumberIntent") {
 
-						console.log('Starting number Intent')
-						var number = this.event.request.intent.slots.number.value;
-						this.numberedTrack(number)
-
-
-				} else if (intent.name === "AMAZON.StopIntent") {
-
-						console.log('Starting number Intent')
-						console.log('Running STOP intent')
-						this.stop();
-
-				} else if (intent.name === "AMAZON.PauseIntent") {
-						console.log('Running pause intent')
-						this.stop();
-
-				} else if (intent.name === "AMAZON.CancelIntent") {
-						this.speak(' ');
-
-				} else if (intent.name === "AMAZON.NextIntent") {
-						this.next();
-
-				} else if (intent.name === "AMAZON.PreviousIntent") {
-						this.previous();
-
-				} else if (intent.name === "AMAZON.ShuffleOffIntent") {
-						this.shuffle('off');
-
-				} else if (intent.name === "AMAZON.ShuffleOnIntent") {
-						this.shuffle('on');
-
-				} else if (intent.name === "AMAZON.LoopOnIntent") {
-						this.loop('on');
-
-				} else if (intent.name === "AMAZON.LoopOffIntent") {
-						this.loop('off');
-
-				} else if (intent.name === "AMAZON.RepeatIntent") {
-						this.speak('Repeat is not supported by the youtube skill');
-
-				} else if (intent.name === "AMAZON.StartOverIntent") {
-						this.numberedTrack(1);
-
-				} else if (intent.name === "AMAZON.HelpIntent") {
-						this.help();
-
-				} else if (intent.name === "AMAZON.ResumeIntent") {
-						console.log('Resume called');
-						var resumefunction = this;
-						this.loadSettings(function(err, result)  {
-								if (err) {
-										resumefunction.speak('There was an error loading settings from dropbox')
-								} else {
-										var lastPlayed = settings.lastplayed
-										var offsetInMilliseconds = 0;
-										var token = resumefunction.createToken;
-										var results = resumefunction.results;
-										var currentresult = settings.currentresult
-										var previousresult = settings.previousresult
+      console.log('Starting number Intent')
+      var number = this.event.request.intent.slots.number.value;
+      this.numberedTrack(number)
 
 
-										var currenturl = settings.currentURL;
+    } else if (intent.name === "AMAZON.StopIntent") {
 
-										if (lastPlayed !== null) {
-												console.log(lastPlayed);
-												offsetInMilliseconds = lastPlayed.request.offsetInMilliseconds;
-												token = settings.currenttoken;
-										}
-										if (offsetInMilliseconds < 0){
-												offsetInMilliseconds = 0
-										}
+      console.log('Starting number Intent')
+      console.log('Running STOP intent')
+      this.stop();
 
-										if (settings.enqueue == true){
-												console.log('RESUME INTENT Track already enqueued')
-												settings.enqueue = false
-												var tracksettings = settings.tracksettings[currentresult]
-												var currentpart = tracksettings.currentpart
-												var totalparts = tracksettings.parts
-												console.log('RESUME INTENT CurrentResult is', currentresult)
-												console.log('RESUME INTENT Currentpart is', currentpart)
-												console.log('RESUME INTENT Offset is', offsetInMilliseconds)
+    } else if (intent.name === "AMAZON.PauseIntent") {
+      console.log('Running pause intent')
+      this.stop();
 
-												if (currentresult !== previousresult){
-														//
-														console.log('RESUME INTENT Next track already cued')
-														settings.currentresult = previousresult
-														currentpart = settings.tracksettings[previousresult].currentpart
+    } else if (intent.name === "AMAZON.CancelIntent") {
+      this.speak(' ');
 
-														resumefunction.processResult(currentpart, null, offsetInMilliseconds)
+    } else if (intent.name === "AMAZON.NextIntent") {
+      this.next();
 
+    } else if (intent.name === "AMAZON.PreviousIntent") {
+      this.previous();
 
-												} else {
+    } else if (intent.name === "AMAZON.ShuffleOffIntent") {
+      this.shuffle('off');
 
-														// assume we are on the same track so play the previous part
-														console.log('RESUME INTENT Next part already cued')
-														tracksettings.currentpart--;
+    } else if (intent.name === "AMAZON.ShuffleOnIntent") {
+      this.shuffle('on');
 
-														if (tracksettings.currentpart < 0){
-																tracksettings.currentpart = 0
-														}
-														console.log('RESUME INTENT Queueing part ', tracksettings.currentpart)
-														settings.tracksettings[currentresult].currentpart = tracksettings.currentpart;
-														resumefunction.processResult(tracksettings.currentpart, null,offsetInMilliseconds)
-												}
+    } else if (intent.name === "AMAZON.LoopOnIntent") {
+      this.loop('on');
 
-										} else {
-												console.log('current URL is ' + currenturl)
+    } else if (intent.name === "AMAZON.LoopOffIntent") {
+      this.loop('off');
 
-												resumefunction.resume(currenturl, offsetInMilliseconds, token);
-										}
-								}
-						});
+    } else if (intent.name === "AMAZON.RepeatIntent") {
+      this.speak('Repeat is not supported by the youtube skill');
 
-				} else if (intent.name === "DemoIntent") {
-						console.log('Demo intent');
-						if (this.supportsDisplay()) {
-								dropbox({
-										resource: 'files/get_temporary_link',
-										parameters: {
-												'path': '/Alexa/demo video dropbox player.mp4'
-										}
-								}, (err, result) => {
-										if (err) {
-												console.log('There was an error')
-												console.log(err)
-												this.speak('There was an error playing the demo video');
-										} else if (result) {
-												console.log('Here is the temp link')
-												console.log(result.link)
-												var streamURL = result.link
-												this.playVideo(streamURL, 0, this.createToken(), "Demo sample video", "Just a streaming video demo");
-										}
-								});
-						} else {
-								this.playAudio("https://audio1.maxi80.com/",0,this.createToken(),"Demo sample audio","Just a demo streaming audio from maxi80 radio")
-						}
-				}
+    } else if (intent.name === "AMAZON.StartOverIntent") {
+      this.numberedTrack(1);
 
-		} else if (requestType === "AudioPlayer.PlaybackStopped") {
-				console.log('Playback stopped')
-				var playbackstoppedfunction = this;
+    } else if (intent.name === "AMAZON.HelpIntent") {
+      this.help();
 
-				this.loadSettings(function(err, result)  {
-						if (err) {
-								playbackstoppedfunction.speak('There was an error loading settings from dropbox')
-						} else {
-								settings.lastplayed = playbackstoppedfunction.event
-								playbackstoppedfunction.saveSettings(function(err, result)  {
-										if (err) {
-												console.log('There was an error saving settings to dropbox', err)
-										} else {
-
-										}
-								});
-						}
-
-				});
+    } else if (intent.name === "AMAZON.ResumeIntent") {
+      console.log('Resume called');
+      var resumefunction = this;
+      this.loadSettings(function(err, result)  {
+        if (err) {
+          resumefunction.speak('There was an error loading settings from dropbox')
+        } else {
+          var lastPlayed = settings.lastplayed
+          var offsetInMilliseconds = 0;
+          var token = resumefunction.createToken;
+          var results = resumefunction.results;
+          var currentresult = settings.currentresult
+          var previousresult = settings.previousresult
 
 
-		}	else if (requestType === "AudioPlayer.PlaybackPause") {
-				console.log('Playback paused')
+          var currenturl = settings.currentURL;
 
-		}	else if (requestType === "AudioPlayer.AudioPlayer.PlaybackFailed") {
-				console.log('Playback failed')
-				console.log(this.event.request.error.message)
+          if (lastPlayed !== null) {
+            console.log(lastPlayed);
+            offsetInMilliseconds = lastPlayed.request.offsetInMilliseconds;
+            token = settings.currenttoken;
+          }
+          if (offsetInMilliseconds < 0){
+            offsetInMilliseconds = 0
+          }
 
-		}	else if (requestType === "AudioPlayer.PlaybackStarted") {
-				console.log('Playback started')
+          if (settings.enqueue == true){
+            console.log('RESUME INTENT Track already enqueued')
+            settings.enqueue = false
+            var tracksettings = settings.tracksettings[currentresult]
+            var currentpart = tracksettings.currentpart
+            var totalparts = tracksettings.parts
+            console.log('RESUME INTENT CurrentResult is', currentresult)
+            console.log('RESUME INTENT Currentpart is', currentpart)
+            console.log('RESUME INTENT Offset is', offsetInMilliseconds)
 
-				var playbackstartedfunction = this;
-				console.log(playbackstartedfunction.event)
+            if (currentresult !== previousresult){
+              //
+              console.log('RESUME INTENT Next track already cued')
+              settings.currentresult = previousresult
+              currentpart = settings.tracksettings[previousresult].currentpart
 
-				this.loadSettings(function(err, result)  {
-						if (err) {
-								playbackstartedfunction.speak('There was an error loading settings from dropbox')
-						} else {
-								settings.lastplayed = playbackstartedfunction.event
-								settings.enqueue = false;
-								settings.currentlyplaying = playbackstartedfunction.event
-								var results = settings.results
-								var currentresult = settings.currentresult
-								settings.currenttitle = results[currentresult].title
+              resumefunction.processResult(currentpart, null, offsetInMilliseconds)
 
-								playbackstartedfunction.saveSettings(function(err, result)  {
-										if (err) {
-												console.log('There was an error saving settings to dropbox', err)
-										} else {
 
-										}
-								});
-						}
+            } else {
 
-				});
+              // assume we are on the same track so play the previous part
+              console.log('RESUME INTENT Next part already cued')
+              tracksettings.currentpart--;
 
-		}	else if (requestType === "AudioPlayer.PlaybackNearlyFinished") {
-				console.log('Playback nearly finished')
-				var finishedfunction = this;
-				var token = this.event.request.token;
-				console.log('Token from request is', token)
-				// PlaybackNearlyFinished Directive are prone to be delivered multiple times during the same audio being played.
-				//If an audio file is already enqueued, exit without enqueuing again.
+              if (tracksettings.currentpart < 0){
+                tracksettings.currentpart = 0
+              }
+              console.log('RESUME INTENT Queueing part ', tracksettings.currentpart)
+              settings.tracksettings[currentresult].currentpart = tracksettings.currentpart;
+              resumefunction.processResult(tracksettings.currentpart, null,offsetInMilliseconds)
+            }
 
-				this.loadSettings(function(err, result)  {
-						if (err) {
-								finishedfunction.speak('There was an error loading settings to dropbox')
-						} else {
+          } else {
+            console.log('current URL is ' + currenturl)
 
-								if (settings.enqueue == true){
-										console.log("NEARLY FINISHED Track already enqueued")
-								} else {
-										console.log("NEARLY FINISHED Nothing already enqueued")
-										var results = settings.results
-										var current = settings.currentresult
+            resumefunction.resume(currenturl, offsetInMilliseconds, token);
+          }
+        }
+      });
 
-										settings.currenttoken = token
-										var tracksettings = settings.tracksettings[current]
-										var currentpart = tracksettings.currentpart
-										var totalparts = tracksettings.parts
-										console.log('NEARLY FINISHED Currentpart is', currentpart)
-										console.log('NEARLY FINISHED Total parts ', totalparts)
-
-										if (currentpart <= (totalparts -2)){
-												currentpart++
-												settings.tracksettings[current].currentpart = currentpart
-												console.log('NEARLY FINISHED Queueing part ', currentpart)
-												settings.enqueue = true
-												finishedfunction.processResult(currentpart, 'enqueue', 0);
-
-										} else {
-												console.log('NEARLY FINISHED No parts left - queueing next track')
-
-												settings.previousresult = current
-												if (settings.shuffle == 'on'){
-														settings.currentresult = Math.floor((Math.random() * (results.length-1) ));
-														settings.tracksettings[settings.currentresult].currentpart = 0
-														settings.enqueue = true
-														finishedfunction.processResult(0, 'enqueue', 0);
-												}
-
-												else if (current >= results.length-1){
-														if (settings.loop == 'on'){
-																settings.currentresult = 0
-																settings.tracksettings[settings.currentresult].currentpart = 0
-																settings.enqueue = true
-																finishedfunction.processResult(0, 'enqueue', 0);
-														} else {
-																console.log('end of results reached')
-														}
-												} else if(settings.autoplay == 'off'){
-														console.log('Autoplay is off')
-												}
-												else {
-														current++;
-														settings.currentresult = current;
-														settings.enqueue = true
-														finishedfunction.processResult(0, 'enqueue', 0);
-
-												}
-										}
-								}
-						}
-				});
-		} else if (requestType === "Display.ElementSelected") {
-      console.log('Element Selected:');
-      console.log(this.event.request.token);
-      var id = this.event.request.token.split('_')[1];
-      console.log(settings.tracksettings[id]);
-      var that = this;
-      var getTempURL = function(cb) {
+    } else if (intent.name === "DemoIntent") {
+      console.log('Demo intent');
+      if (this.supportsDisplay()) {
         dropbox({
           resource: 'files/get_temporary_link',
           parameters: {
-            'path': settings.tracksettings[id].path
+            'path': '/Alexa/demo video dropbox player.mp4'
           }
         }, (err, result) => {
           if (err) {
@@ -444,68 +291,221 @@ alexaplayer.prototype.handle = function () {
             console.log('Here is the temp link')
             console.log(result.link)
             var streamURL = result.link
-            cb(streamURL);
+            this.playVideo(streamURL, 0, this.createToken(), "Demo sample video", "Just a streaming video demo");
           }
         });
-      };
-
-      if (this.supportsDisplay()) {
-        getTempURL( function(streamURL) {
-          that.playVideo(streamURL, 0, that.createToken(), settings.tracksettings[id].title, settings.tracksettings[id].size);
-        });
       } else {
-        getTempURL( function(streamURL) {
-          that.playAudio(streamURL, 0, that.createToken(), settings.tracksettings[id].title, "Just streaming audio")
+        this.playAudio("https://audio1.maxi80.com/",0,this.createToken(),"Demo sample audio","Just a demo streaming audio from maxi80 radio")
+      }
+    }
+
+  } else if (requestType === "AudioPlayer.PlaybackStopped") {
+    console.log('Playback stopped')
+    var playbackstoppedfunction = this;
+
+    this.loadSettings(function(err, result)  {
+      if (err) {
+        playbackstoppedfunction.speak('There was an error loading settings from dropbox')
+      } else {
+        settings.lastplayed = playbackstoppedfunction.event
+        playbackstoppedfunction.saveSettings(function(err, result)  {
+          if (err) {
+            console.log('There was an error saving settings to dropbox', err)
+          } else {
+
+          }
         });
       }
+
+    });
+
+
+  }	else if (requestType === "AudioPlayer.PlaybackPause") {
+    console.log('Playback paused')
+
+  }	else if (requestType === "AudioPlayer.AudioPlayer.PlaybackFailed") {
+    console.log('Playback failed')
+    console.log(this.event.request.error.message)
+
+  }	else if (requestType === "AudioPlayer.PlaybackStarted") {
+    console.log('Playback started')
+
+    var playbackstartedfunction = this;
+    console.log(playbackstartedfunction.event)
+
+    this.loadSettings(function(err, result)  {
+      if (err) {
+        playbackstartedfunction.speak('There was an error loading settings from dropbox')
+      } else {
+        settings.lastplayed = playbackstartedfunction.event
+        settings.enqueue = false;
+        settings.currentlyplaying = playbackstartedfunction.event
+        var results = settings.results
+        var currentresult = settings.currentresult
+        settings.currenttitle = results[currentresult].title
+
+        playbackstartedfunction.saveSettings(function(err, result)  {
+          if (err) {
+            console.log('There was an error saving settings to dropbox', err)
+          } else {
+
+          }
+        });
+      }
+
+    });
+
+  }	else if (requestType === "AudioPlayer.PlaybackNearlyFinished") {
+    console.log('Playback nearly finished')
+    var finishedfunction = this;
+    var token = this.event.request.token;
+    console.log('Token from request is', token)
+    // PlaybackNearlyFinished Directive are prone to be delivered multiple times during the same audio being played.
+    //If an audio file is already enqueued, exit without enqueuing again.
+
+    this.loadSettings(function(err, result)  {
+      if (err) {
+        finishedfunction.speak('There was an error loading settings to dropbox')
+      } else {
+
+        if (settings.enqueue == true){
+          console.log("NEARLY FINISHED Track already enqueued")
+        } else {
+          console.log("NEARLY FINISHED Nothing already enqueued")
+          var results = settings.results
+          var current = settings.currentresult
+
+          settings.currenttoken = token
+          var tracksettings = settings.tracksettings[current]
+          var currentpart = tracksettings.currentpart
+          var totalparts = tracksettings.parts
+          console.log('NEARLY FINISHED Currentpart is', currentpart)
+          console.log('NEARLY FINISHED Total parts ', totalparts)
+
+          if (currentpart <= (totalparts -2)){
+            currentpart++
+            settings.tracksettings[current].currentpart = currentpart
+            console.log('NEARLY FINISHED Queueing part ', currentpart)
+            settings.enqueue = true
+            finishedfunction.processResult(currentpart, 'enqueue', 0);
+
+          } else {
+            console.log('NEARLY FINISHED No parts left - queueing next track')
+
+            settings.previousresult = current
+            if (settings.shuffle == 'on'){
+              settings.currentresult = Math.floor((Math.random() * (results.length-1) ));
+              settings.tracksettings[settings.currentresult].currentpart = 0
+              settings.enqueue = true
+              finishedfunction.processResult(0, 'enqueue', 0);
+            }
+
+            else if (current >= results.length-1){
+              if (settings.loop == 'on'){
+                settings.currentresult = 0
+                settings.tracksettings[settings.currentresult].currentpart = 0
+                settings.enqueue = true
+                finishedfunction.processResult(0, 'enqueue', 0);
+              } else {
+                console.log('end of results reached')
+              }
+            } else if(settings.autoplay == 'off'){
+              console.log('Autoplay is off')
+            }
+            else {
+              current++;
+              settings.currentresult = current;
+              settings.enqueue = true
+              finishedfunction.processResult(0, 'enqueue', 0);
+
+            }
+          }
+        }
+      }
+    });
+  } else if (requestType === "Display.ElementSelected") {
+    console.log('Element Selected:');
+    console.log(this.event.request.token);
+    var id = this.event.request.token.split('_')[1];
+    console.log(settings.tracksettings[id]);
+    var that = this;
+    var getTempURL = function(cb) {
+      dropbox({
+        resource: 'files/get_temporary_link',
+        parameters: {
+          'path': settings.tracksettings[id].path
+        }
+      }, (err, result) => {
+        if (err) {
+          console.log('There was an error')
+          console.log(err)
+          this.speak('There was an error playing the demo video');
+        } else if (result) {
+          console.log('Here is the temp link')
+          console.log(result.link)
+          var streamURL = result.link
+          cb(streamURL);
+        }
+      });
+    };
+
+    if (this.supportsDisplay()) {
+      getTempURL( function(streamURL) {
+        that.playVideo(streamURL, 0, that.createToken(), settings.tracksettings[id].title, settings.tracksettings[id].size);
+      });
     } else {
-		  console.log('unknown request...');
-      console.log(this.event.request);
+      getTempURL( function(streamURL) {
+        that.playAudio(streamURL, 0, that.createToken(), settings.tracksettings[id].title, "Just streaming audio")
+      });
     }
+  } else {
+    console.log('unknown request...');
+    console.log(this.event.request);
+  }
 
 };
 
 alexaplayer.prototype.playAudio = function (mediaURL, offsetInMilliseconds,  tokenValue, title, playlistText) {
-    try {
-      var a = title.slice(0, -4);
-      title = a;
-    } catch (e) {}
+  try {
+    var a = title.slice(0, -4);
+    title = a;
+  } catch (e) {}
 
-		var responseText = 'Playing ' + title;
+  var responseText = 'Playing ' + title;
 
-		var response = {
-				version: "1.0",
-				response: {
-						shouldEndSession: true,
-						"outputSpeech": {
-								"type": "PlainText",
-								"text": responseText,
-						},
-						"card": {
-								"type": "Standard",
-								"title": "📺 Playing - " + title + ' 📺',
-								"text": playlistText
-						},
-						directives: [
-								{
-										type: "AudioPlayer.Play",
-										playBehavior: "REPLACE_ALL",
-										audioItem: {
-												stream: {
-														url: mediaURL,
-														token: tokenValue,
-														expectedPreviousToken: null,
-														offsetInMilliseconds: offsetInMilliseconds
-												}
-										}
-								}
-						]
-				}
-		};
+  var response = {
+    version: "1.0",
+    response: {
+      shouldEndSession: true,
+      "outputSpeech": {
+        "type": "PlainText",
+        "text": responseText,
+      },
+      "card": {
+        "type": "Standard",
+        "title": "📺 Playing - " + title + ' 📺',
+        "text": playlistText
+      },
+      directives: [
+        {
+          type: "AudioPlayer.Play",
+          playBehavior: "REPLACE_ALL",
+          audioItem: {
+            stream: {
+              url: mediaURL,
+              token: tokenValue,
+              expectedPreviousToken: null,
+              offsetInMilliseconds: offsetInMilliseconds
+            }
+          }
+        }
+      ]
+    }
+  };
 
-		console.log('Play Response is')
-		console.log(JSON.stringify(response))
-		this.context.succeed(response);
+  console.log('Play Response is')
+  console.log(JSON.stringify(response))
+  this.context.succeed(response);
 }
 
 alexaplayer.prototype.playVideo = function (mediaURL, offsetInMilliseconds,  tokenValue, title, playlistText) {
@@ -515,132 +515,132 @@ alexaplayer.prototype.playVideo = function (mediaURL, offsetInMilliseconds,  tok
   } catch (e) {}
 
   console.log('Play');
-		var response = {
-				version: "1.0",
-				response: {
-						outputSpeech: {
-								type: "PlainText",
-								text: "Playing " + title,
-						},
-						card: null,
-						directives: [
-								{
-										type: "VideoApp.Launch",
-										videoItem:
-										{
-												source: mediaURL,
-												metadata: {
-														title: title,
-														subtitle: playlistText
-												}
-										}
-								}
-						],
-						reprompt: null
-				}
-		};
+  var response = {
+    version: "1.0",
+    response: {
+      outputSpeech: {
+        type: "PlainText",
+        text: "Playing " + title,
+      },
+      card: null,
+      directives: [
+        {
+          type: "VideoApp.Launch",
+          videoItem:
+          {
+            source: mediaURL,
+            metadata: {
+              title: title,
+              subtitle: playlistText
+            }
+          }
+        }
+      ],
+      reprompt: null
+    }
+  };
 
-		console.log('Play Response is')
-		console.log(JSON.stringify(response))
-		this.context.succeed(response);
+  console.log('Play Response is')
+  console.log(JSON.stringify(response))
+  this.context.succeed(response);
 };
 
 alexaplayer.prototype.stop = function () {
-		console.log("Sending stop response");
-		var stopfunction = this;
-		settings.lastplayed = this.event;
-		this.saveSettings(function(err, result)  {
-				if (err) {
-						console.log('There was an error saving settings to dropbox', err)
-				} else {
-						if (!stopfunction.supportsDisplay()) {
-								var response = {
-										version: "1.0",
-										response: {
-												shouldEndSession: true,
-												directives: [
-														{
-																type: "AudioPlayer.Stop"
-														}
-												]
-										}
-								};
-								this.context.succeed(response);
-						}
-				}
-		});
+  console.log("Sending stop response");
+  var stopfunction = this;
+  settings.lastplayed = this.event;
+  this.saveSettings(function(err, result)  {
+    if (err) {
+      console.log('There was an error saving settings to dropbox', err)
+    } else {
+      if (!stopfunction.supportsDisplay()) {
+        var response = {
+          version: "1.0",
+          response: {
+            shouldEndSession: true,
+            directives: [
+              {
+                type: "AudioPlayer.Stop"
+              }
+            ]
+          }
+        };
+        this.context.succeed(response);
+      }
+    }
+  });
 };
 
 alexaplayer.prototype.next = function () {
-		console.log("Next function, TBC")
+  console.log("Next function, TBC")
 
-		var filesettings = [];
-		var numfunction = this;
-		dropbox({
-				resource: 'files/list_folder',
-				parameters: {
-						"path": "/Alexa",
-						"recursive": false,
-						"include_media_info": false,
-						"include_deleted": false,
-						"include_has_explicit_shared_members": false,
-						"include_mounted_folders": true
-				}
-		}, (err, results) => {
-				if (err) {
-						console.log(err);
-						numfunction.speak('Something went wrong reading from Dropbox. The Alexa folder might not be present in the linked Dropbox account');
-				} else {
-						console.log(results);
-						console.log('lenght: ' + results.entries.length);
-						var playlist=[];
-						// Save filenames list
-						for (var count = 0; count <= results.entries.length-1; count++) {
-								playlist[count] = 'Track ' + (count +1) +': ' + results.entries[count].name
-								var object = {
-										"id": count,
-										"title": results.entries[count].name,
-										"path": results.entries[count].path_display,
-										"duration": null,
-										"parts": null,
-										"size": results.entries[count].size,
-										"isVideo": this.validVideoFormat(results.entries[count].path_display)
-								}
-								filesettings.push(object)
-						}
-						if (number > results.entries.length || number < 1 ){
-								numfunction.speak('That is not a valid selection')
-						} else {
-								var i = 0;
-								do {
-										if (filesettings[i].isVideo) {
-												console.log('Playing ' + filesettings[i].title);
-												dropbox({
-														resource: 'files/get_temporary_link',
-														parameters: {
-																'path': filesettings[i].path
-														}
-												}, (err, result) => {
-														if (err) {
-																console.log('There was an error')
-																console.log(err)
-														} else if (result) {
-																console.log('Here is the temp link')
-																console.log(result.link)
-																var streamURL = result.link
+  var filesettings = [];
+  var numfunction = this;
+  dropbox({
+    resource: 'files/list_folder',
+    parameters: {
+      "path": "/Alexa",
+      "recursive": false,
+      "include_media_info": false,
+      "include_deleted": false,
+      "include_has_explicit_shared_members": false,
+      "include_mounted_folders": true
+    }
+  }, (err, results) => {
+    if (err) {
+      console.log(err);
+      numfunction.speak('Something went wrong reading from Dropbox. The Alexa folder might not be present in the linked Dropbox account');
+    } else {
+      console.log(results);
+      console.log('lenght: ' + results.entries.length);
+      var playlist=[];
+      // Save filenames list
+      for (var count = 0; count <= results.entries.length-1; count++) {
+        playlist[count] = 'Track ' + (count +1) +': ' + results.entries[count].name
+        var object = {
+          "id": count,
+          "title": results.entries[count].name,
+          "path": results.entries[count].path_display,
+          "duration": null,
+          "parts": null,
+          "size": results.entries[count].size,
+          "isVideo": this.validVideoFormat(results.entries[count].path_display)
+        }
+        filesettings.push(object)
+      }
+      if (number > results.entries.length || number < 1 ){
+        numfunction.speak('That is not a valid selection')
+      } else {
+        var i = 0;
+        do {
+          if (filesettings[i].isVideo) {
+            console.log('Playing ' + filesettings[i].title);
+            dropbox({
+              resource: 'files/get_temporary_link',
+              parameters: {
+                'path': filesettings[i].path
+              }
+            }, (err, result) => {
+              if (err) {
+                console.log('There was an error')
+                console.log(err)
+              } else if (result) {
+                console.log('Here is the temp link')
+                console.log(result.link)
+                var streamURL = result.link
 
-																numfunction.playVideo(streamURL, 0, this.createToken, filesettings[i].name, filesettings[i].size)
-														}
-												});
-										} else {
-												console.log('File is not a recognized video format, use: m4v,avi or mp4. Playing next');
-										}
-										i++;
-								} while (!filesettings[i].isVideo && i < results.entries.length);
-								this.speak('Video file not found in the Alexa Dropbox folder');
-						}
-				}
-		});
+                numfunction.playVideo(streamURL, 0, this.createToken, filesettings[i].name, filesettings[i].size)
+              }
+            });
+          } else {
+            console.log('File is not a recognized video format, use: m4v,avi or mp4. Playing next');
+          }
+          i++;
+        } while (!filesettings[i].isVideo && i < results.entries.length);
+        this.speak('Video file not found in the Alexa Dropbox folder');
+      }
+    }
+  });
 
 
 
@@ -648,197 +648,197 @@ alexaplayer.prototype.next = function () {
 
 alexaplayer.prototype.resume = function (audioURL, offsetInMilliseconds, tokenValue) {
 
-		var resumeResponse = {
-				version: "1.0",
-				response: {
-						shouldEndSession: true,
+  var resumeResponse = {
+    version: "1.0",
+    response: {
+      shouldEndSession: true,
 
-						directives: [
-								{
-										type: "AudioPlayer.Play",
-										playBehavior: "REPLACE_ALL",
-										audioItem: {
-												stream: {
-														url: audioURL,
-														streamFormat: "AUDIO_MP4",
-														expectedPreviousToken: null,
-														offsetInMilliseconds: offsetInMilliseconds,
-														//offsetInMilliseconds: 0,
-														token: tokenValue
-												}
-										}
-								}
-						]
-				}
-		};
-		console.log('Resume Response is')
-		console.log(JSON.stringify(resumeResponse))
-		this.context.succeed(resumeResponse);
+      directives: [
+        {
+          type: "AudioPlayer.Play",
+          playBehavior: "REPLACE_ALL",
+          audioItem: {
+            stream: {
+              url: audioURL,
+              streamFormat: "AUDIO_MP4",
+              expectedPreviousToken: null,
+              offsetInMilliseconds: offsetInMilliseconds,
+              //offsetInMilliseconds: 0,
+              token: tokenValue
+            }
+          }
+        }
+      ]
+    }
+  };
+  console.log('Resume Response is')
+  console.log(JSON.stringify(resumeResponse))
+  this.context.succeed(resumeResponse);
 };
 
 alexaplayer.prototype.speak = function (responseText, ask) {
-		//console.log('speaking result')
-		var session = true
-		if (ask){
-				session = false
-		}
-		var response = {
-				version: "1.0",
-				"sessionAttributes": {},
-				response: {
-						"outputSpeech": {
-								"type": "PlainText",
-								"text": responseText,
-						},
-						"shouldEndSession": session
-				}
+  //console.log('speaking result')
+  var session = true
+  if (ask){
+    session = false
+  }
+  var response = {
+    version: "1.0",
+    "sessionAttributes": {},
+    response: {
+      "outputSpeech": {
+        "type": "PlainText",
+        "text": responseText,
+      },
+      "shouldEndSession": session
+    }
 
-		};
-		this.context.succeed(response);
+  };
+  this.context.succeed(response);
 };
 
 alexaplayer.prototype.speakWithCard = function (responseText, cardTitle, cardText) {
-		console.log('speaking with card result')
-		var response = {
-				version: "1.0",
-				"sessionAttributes": {},
-				response: {
-						"outputSpeech": {
-								"type": "PlainText",
-								"text": responseText,
-						},
-						"card": {
-								"type": "Standard",
-								"title": cardTitle,
-								"text": cardText
-						},
-						"shouldEndSession": true
-				}
+  console.log('speaking with card result')
+  var response = {
+    version: "1.0",
+    "sessionAttributes": {},
+    response: {
+      "outputSpeech": {
+        "type": "PlainText",
+        "text": responseText,
+      },
+      "card": {
+        "type": "Standard",
+        "title": cardTitle,
+        "text": cardText
+      },
+      "shouldEndSession": true
+    }
 
-		};
-		this.context.succeed(response);
+  };
+  this.context.succeed(response);
 };
 
 alexaplayer.prototype.numberedTrack = function (number) {
-		console.log('Numbered track function')
+  console.log('Numbered track function')
 
-		var numfunction = this;
-		this.loadSettings(function(err, result)  {
-				if (err) {
-						console.log('There was an error loading settings from dropbox. Starting track 1 in dropbox')
-						var filesettings = [];
-						dropbox({
-								resource: 'files/list_folder',
-								parameters: {
-										"path": "/Alexa",
-										"recursive": false,
-										"include_media_info": false,
-										"include_deleted": false,
-										"include_has_explicit_shared_members": false,
-										"include_mounted_folders": true
-								}
-						}, (err, results) => {
-								if (err) {
-										console.log(err);
-										numfunction.speak('Soemething went wrong reading from Dropbox. The Alexa folder might not be present in the linked Dropbox account');
-								} else {
-										console.log(results);
-										console.log('lenght: ' + results.entries.length);
+  var numfunction = this;
+  this.loadSettings(function(err, result)  {
+    if (err) {
+      console.log('There was an error loading settings from dropbox. Starting track 1 in dropbox')
+      var filesettings = [];
+      dropbox({
+        resource: 'files/list_folder',
+        parameters: {
+          "path": "/Alexa",
+          "recursive": false,
+          "include_media_info": false,
+          "include_deleted": false,
+          "include_has_explicit_shared_members": false,
+          "include_mounted_folders": true
+        }
+      }, (err, results) => {
+        if (err) {
+          console.log(err);
+          numfunction.speak('Soemething went wrong reading from Dropbox. The Alexa folder might not be present in the linked Dropbox account');
+        } else {
+          console.log(results);
+          console.log('lenght: ' + results.entries.length);
 
-										// Save filenames list
-										for (var count = 0; count <= results.entries.length-1; count++) {
-												playlist[count] = 'Track ' + (count +1) +': ' + results[count].name
-												var object = {
-														"id": count,
-														"title": results.entries[count].name,
-														"path": results.entries[count].path_display,
-														"duration": null,
-														"parts": null,
-														"size": results.entries[count].size,
-														"isVideo": this.validVideoFormat(results.entries[count].path_display)
-												}
-												filesettings.push(object)
-										}
+          // Save filenames list
+          for (var count = 0; count <= results.entries.length-1; count++) {
+            playlist[count] = 'Track ' + (count +1) +': ' + results[count].name
+            var object = {
+              "id": count,
+              "title": results.entries[count].name,
+              "path": results.entries[count].path_display,
+              "duration": null,
+              "parts": null,
+              "size": results.entries[count].size,
+              "isVideo": this.validVideoFormat(results.entries[count].path_display)
+            }
+            filesettings.push(object)
+          }
 
-										if (number > results.entries.length || number < 1 ){
-												numfunction.speak('That is not a valid selection')
-										} else {
-												var i = number;
-												do {
-														if (filesettings[i].isVideo) {
-																console.log('Playing ' + filesettings[i].title);
-																dropbox({
-																		resource: 'files/get_temporary_link',
-																		parameters: {
-																				'path': filesettings[i].path
-																		}
-																}, (err, result) => {
-																		if (err) {
-																				console.log('There was an error')
-																				console.log(err)
-																		} else if (result) {
-																				console.log('Here is the temp link')
-																				console.log(result.link)
-																				var streamURL = result.link
+          if (number > results.entries.length || number < 1 ){
+            numfunction.speak('That is not a valid selection')
+          } else {
+            var i = number;
+            do {
+              if (filesettings[i].isVideo) {
+                console.log('Playing ' + filesettings[i].title);
+                dropbox({
+                  resource: 'files/get_temporary_link',
+                  parameters: {
+                    'path': filesettings[i].path
+                  }
+                }, (err, result) => {
+                  if (err) {
+                    console.log('There was an error')
+                    console.log(err)
+                  } else if (result) {
+                    console.log('Here is the temp link')
+                    console.log(result.link)
+                    var streamURL = result.link
 
-																				numfunction.playVideo(streamURL, 0, this.createToken, filesettings[i].name, filesettings[i].size)
-																		}
-																});
-														} else {
-																console.log('File is not a recognized video format, use: m4v,avi or mp4. Playing next');
-														}
-														i++;
-												} while (!filesettings[i].isVideo && i < results.entries.length)
-												this.speak('Video file not found in the Alexa Dropbox folder');
-										}
-								}
-						});
+                    numfunction.playVideo(streamURL, 0, this.createToken, filesettings[i].name, filesettings[i].size)
+                  }
+                });
+              } else {
+                console.log('File is not a recognized video format, use: m4v,avi or mp4. Playing next');
+              }
+              i++;
+            } while (!filesettings[i].isVideo && i < results.entries.length)
+            this.speak('Video file not found in the Alexa Dropbox folder');
+          }
+        }
+      });
 
-				} else {
-						var enqueuestatus = settings.enqueue
-						var currenttoken = settings.currenttoken
-						var url = settings.currentURL
-						var results = settings.playlist
-						var current = settings.currentresult
-						console.log(JSON.stringify(settings));
+    } else {
+      var enqueuestatus = settings.enqueue
+      var currenttoken = settings.currenttoken
+      var url = settings.currentURL
+      var results = settings.playlist
+      var current = settings.currentresult
+      console.log(JSON.stringify(settings));
 
-						if (number > results.length || number < 1 ){
-								numfunction.speak('That is not a valid selection')
-						} else {
-								settings.currentresult = number-1;
-								settings.tracksettings[settings.currentresult].currentpart = 0
-								numfunction.processResult(0, null, 0);
-						}
-				}
-		});
+      if (number > results.length || number < 1 ){
+        numfunction.speak('That is not a valid selection')
+      } else {
+        settings.currentresult = number-1;
+        settings.tracksettings[settings.currentresult].currentpart = 0
+        numfunction.processResult(0, null, 0);
+      }
+    }
+  });
 };
 
 alexaplayer.prototype.saveSettings = function (callback) {
-		// add the writing of this file to the data used (we have to estimate the filesize as being 24KB)
-		var wstream = fs.createWriteStream('/tmp/settings.js');
-		wstream.write(JSON.stringify(settings));
-		wstream.end();
-		wstream.on('finish', function () {
-				//console.log('seetings file has been written');
-				const dropboxUploadlastplayed = dropbox({
-						resource: 'files/upload',
-						parameters: {
-								path: '/AlexaSettings/settings.js',
-								mode: 'overwrite',
-								mute: true
-						}
-				}, (err, result) => {
-						if (err){
-								console.log('There was an error')
-								callback(err, null);
-						} else if (result){
+  // add the writing of this file to the data used (we have to estimate the filesize as being 24KB)
+  var wstream = fs.createWriteStream('/tmp/settings.js');
+  wstream.write(JSON.stringify(settings));
+  wstream.end();
+  wstream.on('finish', function () {
+    //console.log('seetings file has been written');
+    const dropboxUploadlastplayed = dropbox({
+      resource: 'files/upload',
+      parameters: {
+        path: '/AlexaSettings/settings.js',
+        mode: 'overwrite',
+        mute: true
+      }
+    }, (err, result) => {
+      if (err){
+        console.log('There was an error')
+        callback(err, null);
+      } else if (result){
 
-								callback(null, result);
+        callback(null, result);
 
-						}
-				});
-				fs.createReadStream('/tmp/settings.js').pipe(dropboxUploadlastplayed);
-		});
+      }
+    });
+    fs.createReadStream('/tmp/settings.js').pipe(dropboxUploadlastplayed);
+  });
 
 
 
@@ -846,124 +846,124 @@ alexaplayer.prototype.saveSettings = function (callback) {
 
 alexaplayer.prototype.loadSettings = function (callback) {
 
-		const savefile = fs.createWriteStream('/tmp/settings.js')
-		dropbox({
-				resource: 'files/download',
-				parameters: {
-						path: '/AlexaSettings/settings.js'
-				}
-		}, (err, result) => {
-				if (err){
-						console.log('There was an error downloading file from dropbox')
-						callback(err, null);
-				} else if (result){
-						//savefile.end();
-				}
-		}).pipe(savefile);
+  const savefile = fs.createWriteStream('/tmp/settings.js')
+  dropbox({
+    resource: 'files/download',
+    parameters: {
+      path: '/AlexaSettings/settings.js'
+    }
+  }, (err, result) => {
+    if (err){
+      console.log('There was an error downloading file from dropbox')
+      callback(err, null);
+    } else if (result){
+      //savefile.end();
+    }
+  }).pipe(savefile);
 
-		savefile.on('finish', function () {
-				fs.readFile('/tmp/settings.js', 'utf8', onFileRead);
+  savefile.on('finish', function () {
+    fs.readFile('/tmp/settings.js', 'utf8', onFileRead);
 
-				function onFileRead(err, data) {
-						if (err) {
-								console.log('There was an error reading settings file from /tmp')
-								callback(err, null);
-						} else {
-								settings = JSON.parse(data);
-								callback(null, {});
-						}
-				}
-		})
+    function onFileRead(err, data) {
+      if (err) {
+        console.log('There was an error reading settings file from /tmp')
+        callback(err, null);
+      } else {
+        settings = JSON.parse(data);
+        callback(null, {});
+      }
+    }
+  })
 
 };
 
 alexaplayer.prototype.help = function(currentresult) {
 
-		console.log('Help intent');
-		var cardtext = '1. Request a particular video: "Alexa, play the latest video from Chicago"\n' +
-		'2. Request an auto generated playlist of 25 results: - "Alexa play the latest Seattle match"\n' +
-		'3. Request a particular track from the playlist: "Alexa, play Track 10"\n' +
-		'4. Skip to the next/previous track:- "Alexa, next/previous"\n' +
-		'5. Pause:- "Alexa pause" or "Alexa stop"\n' +
-		'6. Resume playback:- "Alexa resume" ';
+  console.log('Help intent');
+  var cardtext = '1. Request a particular video: "Alexa, play the latest video from Chicago"\n' +
+  '2. Request an auto generated playlist of 25 results: - "Alexa play the latest Seattle match"\n' +
+  '3. Request a particular track from the playlist: "Alexa, play Track 10"\n' +
+  '4. Skip to the next/previous track:- "Alexa, next/previous"\n' +
+  '5. Pause:- "Alexa pause" or "Alexa stop"\n' +
+  '6. Resume playback:- "Alexa resume" ';
 
-		var cardTitle = 'Dropbox Player Skill Commands';
+  var cardTitle = 'Dropbox Player Skill Commands';
 
-		if (this.supportsDisplay()) {
-				this.speakWithCard('Please see the Alexa app for a list of commands that can be used with this skill', cardTitle, cardtext)
-		} else {
-				this.speak(cardtext);
-		}
+  if (this.supportsDisplay()) {
+    this.speakWithCard('Please see the Alexa app for a list of commands that can be used with this skill', cardTitle, cardtext)
+  } else {
+    this.speak(cardtext);
+  }
 
 }
 
 alexaplayer.prototype.processResult = function (partnumber, enqueue, offset) {
-		console.log("Processing result");
-		if (enqueue) {
-				settings.enqueue = true
-		}
-		if (!offset) {
-				offset = 0
-		}
-		var results = settings.results || settings.playlist;
-		var currentresult = settings.currentresult || 0;
-		console.log(results);
-		console.log(settings);
-		console.log(settings.tracksettings[currentresult].path);
-		var url = settings.tracksettings[currentresult].path;
-		var foundTitle = settings.tracksettings[currentresult].title;
-		var processfuntion = this;
-		dropbox({
-				resource: 'files/get_temporary_link',
-				parameters: {
-						'path': url
-				}
-		}, (err, result) => {
-				if (err){
-						console.log('There was an error')
-						console.log(err)
-				} else if (result){
-						console.log('Here is the temp link')
-						console.log(result.link)
-						var streamURL = result.link
+  console.log("Processing result");
+  if (enqueue) {
+    settings.enqueue = true
+  }
+  if (!offset) {
+    offset = 0
+  }
+  var results = settings.results || settings.playlist;
+  var currentresult = settings.currentresult || 0;
+  console.log(results);
+  console.log(settings);
+  console.log(settings.tracksettings[currentresult].path);
+  var url = settings.tracksettings[currentresult].path;
+  var foundTitle = settings.tracksettings[currentresult].title;
+  var processfuntion = this;
+  dropbox({
+    resource: 'files/get_temporary_link',
+    parameters: {
+      'path': url
+    }
+  }, (err, result) => {
+    if (err){
+      console.log('There was an error')
+      console.log(err)
+    } else if (result){
+      console.log('Here is the temp link')
+      console.log(result.link)
+      var streamURL = result.link
 
-						if (!enqueue){
-								console.log('normal play')
-								var token = processfuntion.createToken();
-								settings.currenttoken = token
-								settings.enqueue = false
-								settings.currentURL = streamURL;
-								processfuntion.saveSettings(function(err, result)  {
-										if (err) {
-												console.log('There was an error saving settings to dropbox', err)
-												processfuntion.speak('There was an error saving settings to dropbox')
-										} else {
-												if (processfuntion.supportsDisplay()) processfuntion.playVideo(streamURL, offset, token, foundTitle, "");
-										}
-								});
+      if (!enqueue){
+        console.log('normal play')
+        var token = processfuntion.createToken();
+        settings.currenttoken = token
+        settings.enqueue = false
+        settings.currentURL = streamURL;
+        processfuntion.saveSettings(function(err, result)  {
+          if (err) {
+            console.log('There was an error saving settings to dropbox', err)
+            processfuntion.speak('There was an error saving settings to dropbox')
+          } else {
+            if (processfuntion.supportsDisplay()) processfuntion.playVideo(streamURL, offset, token, foundTitle, "");
+          }
+        });
 
-						} else {
-								console.log('enque play')
-								var previoustoken = settings.currenttoken
+      } else {
+        console.log('enque play')
+        var previoustoken = settings.currenttoken
 
-								var token = processfuntion.createToken();
-								settings.currenttoken = token
-								settings.enqueue = true
+        var token = processfuntion.createToken();
+        settings.currenttoken = token
+        settings.enqueue = true
 
-								settings.previousURL = settings.currentURL
-								settings.currentURL = streamURL;
+        settings.previousURL = settings.currentURL
+        settings.currentURL = streamURL;
 
-								processfuntion.saveSettings(function(err, result)  {
-										if (err) {
-												console.log('There was an error saving settings to dropbox', err)
-												processfuntion.speak('There was an error saving settings to dropbox')
-										} else {
-												processfuntion.enqueue(streamURL, 0, token, previoustoken);
-										}
-								});
-						}
-				}
-		});
+        processfuntion.saveSettings(function(err, result)  {
+          if (err) {
+            console.log('There was an error saving settings to dropbox', err)
+            processfuntion.speak('There was an error saving settings to dropbox')
+          } else {
+            processfuntion.enqueue(streamURL, 0, token, previoustoken);
+          }
+        });
+      }
+    }
+  });
 }
 
 
@@ -984,331 +984,331 @@ alexaplayer.prototype.putObjectToS3 = function(bucket, key, data){
 
 alexaplayer.prototype.createToken = function() {
 
-		var d = new Date().getTime();
-		var uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-				var r = (d + Math.random()*16)%16 | 0;
-				d = Math.floor(d/16);
-				return (c=='x' ? r : (r&0x3|0x8)).toString(16);
-		});
+  var d = new Date().getTime();
+  var uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    var r = (d + Math.random()*16)%16 | 0;
+    d = Math.floor(d/16);
+    return (c=='x' ? r : (r&0x3|0x8)).toString(16);
+  });
 
-		return uuid;
+  return uuid;
 }
 
 alexaplayer.prototype.supportsDisplay = function() {
-		var hasDisplay = this.event.context && this.event.context.System &&	this.event.context.System.device &&
-		this.event.context.System.device.supportedInterfaces &&	this.event.context.System.device.supportedInterfaces.Display;
+  var hasDisplay = this.event.context && this.event.context.System &&	this.event.context.System.device &&
+  this.event.context.System.device.supportedInterfaces &&	this.event.context.System.device.supportedInterfaces.Display;
 
-		return hasDisplay;
+  return hasDisplay;
 }
 
 alexaplayer.prototype.media_url = function(key) {
-		return util.format('https://s3.amazonaws.com/%s/%s', media_bucket, key);
+  return util.format('https://s3.amazonaws.com/%s/%s', media_bucket, key);
 }
 
 alexaplayer.prototype.formatBytes = function(a,b){if(0==a)return"0 Bytes";var c=1024,d=b||2,e=["Bytes","KB","MB","GB","TB","PB","EB","ZB","YB"],f=Math.floor(Math.log(a)/Math.log(c));return parseFloat((a/Math.pow(c,f)).toFixed(d))+" "+e[f]}
 
 alexaplayer.prototype.validVideoFormat = function(filename) {
-		var ext = getFileExtension(filename);
-		switch (ext.toLowerCase()) {
-				case 'm4v':
-				case 'avi':
-				case 'mpg':
-				case 'mp4':
-						return true;
-		}
-		return false;
+  var ext = getFileExtension(filename);
+  switch (ext.toLowerCase()) {
+    case 'm4v':
+    case 'avi':
+    case 'mpg':
+    case 'mp4':
+      return true;
+  }
+  return false;
 }
 
 function getFileExtension(filename) {
-		var parts = filename.split('.');
-		return parts[parts.length - 1];
+  var parts = filename.split('.');
+  return parts[parts.length - 1];
 }
 
 function renderTemplate (content, s) {
-		switch(content.templateToken) {
-				case "dropboxPlayerBodyTemplate":
-						var response = {
-								"version": "1.0",
-								"response": {
-										"directives": [
-												{
-														"type": "Display.RenderTemplate",
-														"template": {
-																"type": "BodyTemplate1",
-																"title": content.bodyTemplateTitle,
-																"token": content.templateToken,
-																"textContent": {
-																		"primaryText": {
-																				"type": "RichText",
-																				"text": "<font size = '5'>"+content.bodyTemplateContent+"</font>"
-																		}
-																},
-																"backButton": "VISIBLE"
-														}
-												}
-										],
-										"outputSpeech": {
-												"type": "SSML",
-												"ssml": "<speak>"+content.hasDisplaySpeechOutput+"</speak>"
-										},
-										"reprompt": {
-												"outputSpeech": {
-														"type": "SSML",
-														"ssml": "<speak>"+content.hasDisplayRepromptText+"</speak>"
-												}
-										},
-										"shouldEndSession": content.askOrTell==":tell",
-										"card": {
-												"type": "Simple",
-												"title": content.simpleCardTitle,
-												"content": content.simpleCardContent
-										}
-								},
-								"sessionAttributes": content.sessionAttributes
-						}
-						this.context.succeed(response);
-						break;
+  switch(content.templateToken) {
+    case "dropboxPlayerBodyTemplate":
+      var response = {
+        "version": "1.0",
+        "response": {
+          "directives": [
+            {
+              "type": "Display.RenderTemplate",
+              "template": {
+                "type": "BodyTemplate1",
+                "title": content.bodyTemplateTitle,
+                "token": content.templateToken,
+                "textContent": {
+                  "primaryText": {
+                    "type": "RichText",
+                    "text": "<font size = '5'>"+content.bodyTemplateContent+"</font>"
+                  }
+                },
+                "backButton": "VISIBLE"
+              }
+            }
+          ],
+          "outputSpeech": {
+            "type": "SSML",
+            "ssml": "<speak>"+content.hasDisplaySpeechOutput+"</speak>"
+          },
+          "reprompt": {
+            "outputSpeech": {
+              "type": "SSML",
+              "ssml": "<speak>"+content.hasDisplayRepromptText+"</speak>"
+            }
+          },
+          "shouldEndSession": content.askOrTell==":tell",
+          "card": {
+            "type": "Simple",
+            "title": content.simpleCardTitle,
+            "content": content.simpleCardContent
+          }
+        },
+        "sessionAttributes": content.sessionAttributes
+      }
+      this.context.succeed(response);
+      break;
 
-      case "dropboxPlayerListTemplate":
+    case "dropboxPlayerListTemplate":
 
-            var buildImagesListTemplate = function (that, settings) {
-              console.log(settings);
-              var renderfunction = that;
+      var buildImagesListTemplate = function (that, settings) {
+        console.log(settings);
+        var renderfunction = that;
 
-              renderfunction.saveSettings(function (err, result) {
-                if (err) {
-                  console.log('There was an error saving settings to dropbox', err)
-                  renderfunction.speak('I got an error saving the Dropbox file settings')
-                } else {
-                  // Promise with a list of video items and its thumbnails
-                  var listofItems = function () {
-                    var list = [];
-                    var length = settings.playlist.length;
-                    var generatedItems = 0;
+        renderfunction.saveSettings(function (err, result) {
+          if (err) {
+            console.log('There was an error saving settings to dropbox', err)
+            renderfunction.speak('I got an error saving the Dropbox file settings')
+          } else {
+            // Promise with a list of video items and its thumbnails
+            var listofItems = function () {
+              var list = [];
+              var length = settings.playlist.length;
+              var generatedItems = 0;
 
-                    // Get list with thumbnail icons. For loop each file and generate the view
-                    var generateItem = function (seq, cb) {
-                      console.log('Item num:' + seq);
-                      // console.log('settings:');
-                      // console.log(settings.tracksettings);
-                      var options = {
-                        method: 'POST',
-                        url: 'https://content.dropboxapi.com/2/files/get_thumbnail',
-                        headers:
-                        {
-                          authorization: 'Bearer ' + dropbox_token,
-                          "dropbox-api-arg": '{"path":"' + settings.tracksettings[seq].path + '","format":"jpeg", "size": "w640h480"}'
-                        },
-                        encoding: null
-                      };
-                      console.log(JSON.stringify(options));
-                      let cleanPath = settings.tracksettings[seq].path.slice(0, -4).split('/')[settings.tracksettings[seq].path.split('/').length-1];
-                      console.log('Clean path:' + cleanPath);
+              // Get list with thumbnail icons. For loop each file and generate the view
+              var generateItem = function (seq, cb) {
+                console.log('Item num:' + seq);
+                // console.log('settings:');
+                // console.log(settings.tracksettings);
+                var options = {
+                  method: 'POST',
+                  url: 'https://content.dropboxapi.com/2/files/get_thumbnail',
+                  headers:
+                  {
+                    authorization: 'Bearer ' + dropbox_token,
+                    "dropbox-api-arg": '{"path":"' + settings.tracksettings[seq].path + '","format":"jpeg", "size": "w640h480"}'
+                  },
+                  encoding: null
+                };
+                console.log(JSON.stringify(options));
+                let cleanPath = settings.tracksettings[seq].path.slice(0, -4).split('/')[settings.tracksettings[seq].path.split('/').length-1];
+                console.log('Clean path:' + cleanPath);
 
-                      request(options, function (error, response, body) {
-                        if (error) {
-                          console.log(err);
-                          this.speak('Something went wrong getting thumbnail from Dropbox');
-                          throw new Error(error);
-                        } else {
-                          console.log(body.toString());
-                          var image = body;
-                          console.log('thumbnail ok above');
-                          fs.writeFile("/tmp/thumbnail" + cleanPath + ".jpg", image, function (err) {
+                request(options, function (error, response, body) {
+                  if (error) {
+                    console.log(err);
+                    this.speak('Something went wrong getting thumbnail from Dropbox');
+                    throw new Error(error);
+                  } else {
+                    console.log(body.toString());
+                    var image = body;
+                    console.log('thumbnail ok above');
+                    fs.writeFile("/tmp/thumbnail" + cleanPath + ".jpg", image, function (err) {
+                      if (err) {
+                        console.log("writeFile failed: " + err);
+                      } else {
+                        //upload to dropbox thumbnails folder, get temp url and push to list
+                        var upladAndPushThumbnailObject = function (cleanPath, list, cb) {
+                          dropbox({
+                            resource: 'files/upload',
+                            parameters: {
+                              "path": "/AlexaThumbnails/thumbnail" + cleanPath + ".jpg",
+                              "mode": "add",
+                              "autorename": true,
+                              "mute": false
+                            },
+                            readStream: fs.createReadStream('/tmp/thumbnail' + cleanPath + '.jpg')
+                          }, (err, results) => {
                             if (err) {
-                              console.log("writeFile failed: " + err);
-                            } else {
-                              //upload to dropbox thumbnails folder, get temp url and push to list
-                              var upladAndPushThumbnailObject = function (cleanPath, list, cb) {
-                                dropbox({
-                                  resource: 'files/upload',
-                                  parameters: {
-                                    "path": "/AlexaThumbnails/thumbnail" + cleanPath + ".jpg",
-                                    "mode": "add",
-                                    "autorename": true,
-                                    "mute": false
-                                  },
-                                  readStream: fs.createReadStream('/tmp/thumbnail' + cleanPath + '.jpg')
-                                }, (err, results) => {
-                                  if (err) {
-                                    console.log('There was an error uploading thumbnail' + cleanPath);
-                                    console.log(err);
-                                    if (err.code === 429) {
-                                      //Dropbox blocks too many requests. In case of being blocked (transient error) try again
-                                      upladAndPushThumbnailObject(cleanPath, list, cb);
-                                    } else {
-                                      renderfunction.speak('There was an error rendering the view');
-                                    }
-                                  } else if (results) {
-                                    console.log('after uploaded thumbnail')
-                                    console.log(results);
-                                    //get image tmp link
-                                    dropbox({
-                                      resource: 'files/get_temporary_link',
-                                      parameters: {
-                                        'path': '/AlexaThumbnails/thumbnail' + cleanPath + '.jpg'
-                                      }
-                                    }, (err, result) => {
-                                      if (err) {
-                                        console.log('There was an error getting link for thumbnail' + cleanPath);
-                                        console.log(err);
-                                        renderfunction.speak('There was an error rendering the view');
-                                      } else if (result) {
-                                        console.log('tmp link image:');
-                                        console.log(result.link)
-                                        let thumbLink = result.link;
-                                        let obj = {
-                                          "token": "item_" + seq,
-                                          "image": {
-                                            "sources": [
-                                              {
-                                                "url": thumbLink
-                                              }
-                                            ],
-                                            "contentDescription": "Description"
-                                          },
-                                          "textContent": {
-                                            "primaryText": {
-                                              "type": "RichText",
-                                              // "text": "<action token='play'>"+settings.playlist[seq]+"</action>"
-                                              "text": "<b>" + settings.playlist[seq] + "</b>"
-                                            },
-                                            "secondaryText": {
-                                              "type": "PlainText",
-                                              "text": renderfunction.formatBytes(settings.tracksettings[seq].size)
-                                            }
-                                          }
-                                        }
-                                        list.push(obj);
-                                        console.log('object item ready, seq:' + seq);
-                                        cb();
-                                      }
-                                    });
-                                  }
-                                });
+                              console.log('There was an error uploading thumbnail' + cleanPath);
+                              console.log(err);
+                              if (err.code === 429) {
+                                //Dropbox blocks too many requests. In case of being blocked (transient error) try again
+                                upladAndPushThumbnailObject(cleanPath, list, cb);
+                              } else {
+                                renderfunction.speak('There was an error rendering the view');
                               }
-
-                              upladAndPushThumbnailObject(cleanPath, list, cb);
+                            } else if (results) {
+                              console.log('after uploaded thumbnail')
+                              console.log(results);
+                              //get image tmp link
+                              dropbox({
+                                resource: 'files/get_temporary_link',
+                                parameters: {
+                                  'path': '/AlexaThumbnails/thumbnail' + cleanPath + '.jpg'
+                                }
+                              }, (err, result) => {
+                                if (err) {
+                                  console.log('There was an error getting link for thumbnail' + cleanPath);
+                                  console.log(err);
+                                  renderfunction.speak('There was an error rendering the view');
+                                } else if (result) {
+                                  console.log('tmp link image:');
+                                  console.log(result.link)
+                                  let thumbLink = result.link;
+                                  let obj = {
+                                    "token": "item_" + seq,
+                                    "image": {
+                                      "sources": [
+                                        {
+                                          "url": thumbLink
+                                        }
+                                      ],
+                                      "contentDescription": "Description"
+                                    },
+                                    "textContent": {
+                                      "primaryText": {
+                                        "type": "RichText",
+                                        // "text": "<action token='play'>"+settings.playlist[seq]+"</action>"
+                                        "text": "<b>" + settings.playlist[seq] + "</b>"
+                                      },
+                                      "secondaryText": {
+                                        "type": "PlainText",
+                                        "text": renderfunction.formatBytes(settings.tracksettings[seq].size)
+                                      }
+                                    }
+                                  }
+                                  list.push(obj);
+                                  console.log('object item ready, seq:' + seq);
+                                  cb();
+                                }
+                              });
                             }
                           });
                         }
-                      });
-                    }
 
-                    return new Promise(function (fulfill, reject) {
-                      for (let i = 0; i < length; i++) {
-                        console.log('for looop num:' + i);
-                        generateItem(i, function () {
-                          generatedItems++;
-                          console.log('generated items:');
-                          console.log(generatedItems);
-                          console.log(length);
-                          if (generatedItems === length) {
-                            console.log('--->List of files:');
-                            console.log(JSON.stringify(list));
-                            fulfill(list);
-                          }
-                        })
-
+                        upladAndPushThumbnailObject(cleanPath, list, cb);
                       }
                     });
                   }
+                });
+              }
 
-                  //console.log(listofItems());
-                  listofItems().then(function (res) {
-                    var response = {
-                      "version": "1.0",
-                      "response": {
-                        "directives": [
-                          {
-                            "type": "Display.RenderTemplate",
-                            "template": {
-                              "type": "ListTemplate2",
-                              "token": "list_template_two",
-                              "title": content.bodyTemplateTitle,
-                              "backButton": "VISIBLE",
-                              "listItems": res
-                            }
-                          }
-                        ],
-                        "outputSpeech": {
-                          "type": "SSML",
-                          "ssml": "<speak>" + content.hasDisplaySpeechOutput + "</speak>"
-                        },
-                        "reprompt": {
-                          "outputSpeech": {
-                            "type": "SSML",
-                            "ssml": "<speak>" + content.hasDisplayRepromptText + "</speak>"
-                          }
-                        },
-                        "shouldEndSession": content.askOrTell == ":tell",
-                        "card": {
-                          "type": "Simple",
-                          "title": content.simpleCardTitle,
-                          "content": content.simpleCardContent
-                        }
-                      },
-                      "sessionAttributes": content.sessionAttributes
+              return new Promise(function (fulfill, reject) {
+                for (let i = 0; i < length; i++) {
+                  console.log('for looop num:' + i);
+                  generateItem(i, function () {
+                    generatedItems++;
+                    console.log('generated items:');
+                    console.log(generatedItems);
+                    console.log(length);
+                    if (generatedItems === length) {
+                      console.log('--->List of files:');
+                      console.log(JSON.stringify(list));
+                      fulfill(list);
                     }
-                    console.log('Whole list response:');
-                    console.log(response);
-                    renderfunction.context.succeed(response);
-                  });
+                  })
+
                 }
               });
             }
 
-            // If we don't have settings we show all items, otherwise those specified in the settings
-            if (!s) {
-              dropbox({
-                resource: 'files/list_folder',
-                parameters: {
-                  "path": "/Alexa",
-                  "recursive": false,
-                  "include_media_info": false,
-                  "include_deleted": false,
-                  "include_has_explicit_shared_members": false,
-                  "include_mounted_folders": true
-                }
-              }, (err, results) => {
-                if (err) {
-                  console.log(err);
-                  this.speak('Soemething went wrong reading from Dropbox. The Alexa folder might not be present in the linked Dropbox account');
-                } else {
-                  console.log(results);
-                  console.log('lenght: ' + results.entries.length);
-
-                  var tracksettings = [];
-                  var playlist = [];
-                  // Save filenames list
-                  for (var count = 0; count <= results.entries.length - 1; count++) {
-                    playlist[count] = 'Track ' + (count + 1) + ': ' + results.entries[count].name
-                    var object = {
-                      "id": count,
-                      "title": results.entries[count].name,
-                      "path": results.entries[count].path_display,
-                      "duration": null,
-                      "parts": null,
-                      "size": results.entries[count].size,
-                      "isVideo": this.validVideoFormat(results.entries[count].path_display)
+            //console.log(listofItems());
+            listofItems().then(function (res) {
+              var response = {
+                "version": "1.0",
+                "response": {
+                  "directives": [
+                    {
+                      "type": "Display.RenderTemplate",
+                      "template": {
+                        "type": "ListTemplate2",
+                        "token": "list_template_two",
+                        "title": content.bodyTemplateTitle,
+                        "backButton": "VISIBLE",
+                        "listItems": res
+                      }
                     }
-                    tracksettings.push(object)
+                  ],
+                  "outputSpeech": {
+                    "type": "SSML",
+                    "ssml": "<speak>" + content.hasDisplaySpeechOutput + "</speak>"
+                  },
+                  "reprompt": {
+                    "outputSpeech": {
+                      "type": "SSML",
+                      "ssml": "<speak>" + content.hasDisplayRepromptText + "</speak>"
+                    }
+                  },
+                  "shouldEndSession": content.askOrTell == ":tell",
+                  "card": {
+                    "type": "Simple",
+                    "title": content.simpleCardTitle,
+                    "content": content.simpleCardContent
                   }
-                  settings.tracksettings = tracksettings;
-                  settings.playlist = playlist;
-                  console.log('Saving settings...');
-                  buildImagesListTemplate(this, settings);
-                }
-              });
-            } else {
-              buildImagesListTemplate(this, s);
+                },
+                "sessionAttributes": content.sessionAttributes
+              }
+              console.log('Whole list response:');
+              console.log(response);
+              renderfunction.context.succeed(response);
+            });
+          }
+        });
+      }
+
+      // If we don't have settings we show all items, otherwise those specified in the settings
+      if (!s) {
+        dropbox({
+          resource: 'files/list_folder',
+          parameters: {
+            "path": "/Alexa",
+            "recursive": false,
+            "include_media_info": false,
+            "include_deleted": false,
+            "include_has_explicit_shared_members": false,
+            "include_mounted_folders": true
+          }
+        }, (err, results) => {
+          if (err) {
+            console.log(err);
+            this.speak('Soemething went wrong reading from Dropbox. The Alexa folder might not be present in the linked Dropbox account');
+          } else {
+            console.log(results);
+            console.log('lenght: ' + results.entries.length);
+
+            var tracksettings = [];
+            var playlist = [];
+            // Save filenames list
+            for (var count = 0; count <= results.entries.length - 1; count++) {
+              playlist[count] = 'Track ' + (count + 1) + ': ' + results.entries[count].name
+              var object = {
+                "id": count,
+                "title": results.entries[count].name,
+                "path": results.entries[count].path_display,
+                "duration": null,
+                "parts": null,
+                "size": results.entries[count].size,
+                "isVideo": this.validVideoFormat(results.entries[count].path_display)
+              }
+              tracksettings.push(object)
             }
+            settings.tracksettings = tracksettings;
+            settings.playlist = playlist;
+            console.log('Saving settings...');
+            buildImagesListTemplate(this, settings);
+          }
+        });
+      } else {
+        buildImagesListTemplate(this, s);
+      }
 
-						break;
+      break;
 
-				default:
-						this.response.speak("Thanks for using Dropbox Player, goodbye");
-						this.emit(':responseReady');
-		}
+    default:
+      this.response.speak("Thanks for using Dropbox Player, goodbye");
+      this.emit(':responseReady');
+  }
 
 }
