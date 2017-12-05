@@ -207,18 +207,21 @@ https://blogs.dropbox.com/developers/2014/05/generate-an-access-token-for-your-o
 15. Copy the text below and paste them into the Sample Utterances box.
 
     ```
+    NumberIntent {number}
+    NumberIntent play number {number}
+    NumberIntent play track {number}
+    NumberIntent play track number {number}
+    DemoIntent demo
+    ShowIntent show me the latest highlights from {search}
+    ShowIntent show me the latest videos from {search}
+    SearchIntent play highlights from {search} match
     SearchIntent play {search}
     SearchIntent find {search}
     SearchIntent play some {search}
     SearchIntent play me some {search}
     SearchIntent videos by {search}
     SearchIntent for videos by {search}
-    SearchIntent for music by {search}
-    NumberIntent {number}
-    NumberIntent play number {number}
-    NumberIntent play track {number}
-    NumberIntent play track number {number}
-    DemoIntent demo
+    SearchIntent for audio by {search}
     ```
 ![alt text](screenshots/alexa-video-skill3Interaction%20model2.png) 
 
